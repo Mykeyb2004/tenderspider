@@ -1,7 +1,9 @@
+# -*- coding: utf-8 -*-
+
 import asyncio
 import datetime
 import time
-from typing import Any
+# from typing import Any
 
 from tools import *
 from playwright.async_api import async_playwright
@@ -16,6 +18,7 @@ class TenderSpider:
         self.connection = create_connection()
 
     def __del__(self):
+        self.count_records_by_date()
         close_connection(self.connection)
 
     def save_tender_list(self, table: list) -> tuple:
@@ -137,7 +140,7 @@ class TenderSpider:
             await context.close()
             return tbody_list
 
-    def get_detail_href_to_crawl(self, query_count_limit: int = 50) -> list[Any]:
+    def get_detail_href_to_crawl(self, query_count_limit=50):
         href_list = []
         # 获取今天的日期并格式化
         today = datetime.date.today()
@@ -172,6 +175,20 @@ class TenderSpider:
 
         return total_count, not_null_count
 
+    def count_records_by_date(self):
+        # 获取游标对象
+        cursor = self.connection.cursor()
+        today_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', 'localtime')"
+        yesterday_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', '-1 day', 'localtime')"
+        before_yesterday_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', '-2 day', 'localtime')"
+        # 执行 SQL 查询语句并获取总数
+        today_count = cursor.execute(today_sql).fetchone()[0]
+        yesterday_count = cursor.execute(yesterday_sql).fetchone()[0]
+        before_yesterday_count = cursor.execute(before_yesterday_sql).fetchone()[0]
+
+        print(f"今天新增：{today_count} 条；昨天新增：{yesterday_count} 条；前天新增：{before_yesterday_count} 条。")
+        save_log(f"今天新增：{today_count} 条；昨天新增：{yesterday_count} 条；前天新增：{before_yesterday_count} 条。")
+
     async def run(self, page=LIST_PAGE):
         # 获取招标信息列表页
         if page == LIST_PAGE:
@@ -179,8 +196,8 @@ class TenderSpider:
             try:
                 async with async_playwright() as p:
                     print(f"{datetime.datetime.now()} - > Crawling list page. Launching browser...")
-                    browser = await p.chromium.launch()
-
+                    # browser = await p.chromium.launch()
+                    browser = await p.firefox.launch()
                     base_url = "https://zb.zhaobiao.cn"
                     page_num = 100
                     # 省份代码列表，按此遍历各省份招标信息
