@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import random
 import datetime
 import time
-# from typing import Any
+import sys
 
 from tools import *
 from playwright.async_api import async_playwright
 
 LIST_PAGE = 0
 DETAIL_PAGE = 1
+QUERY_COUNT_LIMIT = 5
 
 
 class TenderSpider:
@@ -18,7 +20,7 @@ class TenderSpider:
         self.connection = create_connection()
 
     def __del__(self):
-        self.count_records_by_date()
+        self.summary()
         close_connection(self.connection)
 
     def save_tender_list(self, table: list) -> tuple:
@@ -175,19 +177,26 @@ class TenderSpider:
 
         return total_count, not_null_count
 
-    def count_records_by_date(self):
+    def summary(self):
         # 获取游标对象
         cursor = self.connection.cursor()
         today_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', 'localtime')"
         yesterday_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', '-1 day', 'localtime')"
         before_yesterday_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', '-2 day', 'localtime')"
+        crawled_today_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', 'localtime') AND html IS NOT NULL"
         # 执行 SQL 查询语句并获取总数
         today_count = cursor.execute(today_sql).fetchone()[0]
         yesterday_count = cursor.execute(yesterday_sql).fetchone()[0]
         before_yesterday_count = cursor.execute(before_yesterday_sql).fetchone()[0]
+        crawled_today_count = cursor.execute(crawled_today_sql).fetchone()[0]
+        return today_count, yesterday_count, before_yesterday_count, crawled_today_count
 
-        print(f"今天新增：{today_count} 条；昨天新增：{yesterday_count} 条；前天新增：{before_yesterday_count} 条。")
-        save_log(f"今天新增：{today_count} 条；昨天新增：{yesterday_count} 条；前天新增：{before_yesterday_count} 条。")
+    def show_summary(self):
+        today_count, yesterday_count, before_yesterday_count, crawled_today_count = self.summary()
+        sum_text = f"今天新增：{today_count} 条；昨天新增：{yesterday_count} 条；前天新增：{before_yesterday_count} 条。\n" \
+                   f"今天已爬取：{crawled_today_count} 条。"
+        print(sum_text)
+        log(sum_text)
 
     async def run(self, page=LIST_PAGE):
         # 获取招标信息列表页
@@ -196,8 +205,7 @@ class TenderSpider:
             try:
                 async with async_playwright() as p:
                     print(f"{datetime.datetime.now()} - > Crawling list page. Launching browser...")
-                    # browser = await p.chromium.launch()
-                    browser = await p.firefox.launch()
+                    browser = await p.chromium.launch()
                     base_url = "https://zb.zhaobiao.cn"
                     page_num = 100
                     # 省份代码列表，按此遍历各省份招标信息
@@ -205,6 +213,7 @@ class TenderSpider:
                     # 遍历各省份
                     for province in provinces:
                         print("Travelling province: " + province)
+                        log("Travelling province: " + province)
                         url_list = generate_url_list(base_url, province, page_num)
                         for url in url_list:
                             tender_list = await self.get_tender_list(browser, url)
@@ -216,52 +225,68 @@ class TenderSpider:
                                 print("Too many duplicate datas, skip to the rest province.")
                                 break
                     await browser.close()
+                    self.show_summary()
             except Exception as e:
                 print(f"Error crawling list page: {e}")
+                log(f"Error crawling list page: {e}")
                 await browser.close()
+
         # 获取招标信息详情页
         if page == DETAIL_PAGE:
             browser = None
             try:
                 async with async_playwright() as p:
                     print(f"{datetime.datetime.now()} - > Crawling detail page. Launching browser...")
+                    print(f"Cookie: {self.cookie}")
                     browser = await p.chromium.launch()
                     # 获取待爬取的招标信息链接
-                    href_list = self.get_detail_href_to_crawl(query_count_limit=1500)
+                    href_list = self.get_detail_href_to_crawl(query_count_limit=QUERY_COUNT_LIMIT)
 
                     # while len(href_list) > 0:
                     # 遍历招标信息链接
                     for href in href_list:
-                        print(f"[{datetime.datetime.now()}] Travelling href: {href}")
+                        travel_href_text = f"[{datetime.datetime.now()}] Travelling href: {href}"
+                        log(travel_href_text)
+                        print(travel_href_text)
                         total_count, not_null_count = self.count_crawled_html_records()
                         print(
                             f'Total/Crawled: {total_count}/{not_null_count}，'
                             f'Completed: {not_null_count / total_count * 100:.2f}%')
 
+                        delay_time = random.randint(1, 5)
+                        print(f"Waiting for {delay_time} seconds...")
+                        time.sleep(delay_time)
                         html = await self.get_tender_detail(browser, href[1])
-                        print(html[:50] + '...')
+                        # print(html[:50] + '...')
                         # 保存招标信息详情页
                         if html is not None:
                             if self.save_detail_data_to_db(href[0], html):
                                 print(f"Detail page saved")
-                            else:
-                                print(f"Detail page not saved")
-                            # href_list = self.get_detail_href_to_crawl(query_count_limit=50)
+                    log("All detail pages crawled.")
+                    # href_list = self.get_detail_href_to_crawl(query_count_limit=50)
             except Exception as e:
                 print(f"Error crawling detail page (function run): {e}")
-                return False
                 await browser.close()
                 print("Browser was shutdown.")
-            print("All detail page crawled.")
+            self.show_summary()
+            print("All detail pages crawled.")
 
     def start(self, page):
         asyncio.run(self.run(page=page))
 
 
 if __name__ == '__main__':
-    spider = TenderSpider()
-    print("Starting to crawl list page...")
-    spider.start(LIST_PAGE)
-    # print("Starting to crawl detail page...")
-    # spider.start(DETAIL_PAGE)
-    print("Done.")
+    # 获取命令行参数
+    arg = sys.argv[1]
+    if arg == 'list':
+        print("Starting to crawl list page...\n")
+        spider = TenderSpider()
+        spider.start(LIST_PAGE)
+    elif arg == 'detail':
+        print("Starting to crawl detail page...\n")
+        spider = TenderSpider()
+        spider.start(DETAIL_PAGE)
+    elif arg is None:
+        print("Need a parameter in command line.\n")
+    else:
+        print("Invalid parameter.\n")
