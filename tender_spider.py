@@ -2,16 +2,18 @@
 
 import asyncio
 import random
-import datetime
+# import datetime
 import time
 import sys
+import requests
 
 from tools import *
 from playwright.async_api import async_playwright
+from bs4 import BeautifulSoup
 
 LIST_PAGE = 0
 DETAIL_PAGE = 1
-QUERY_COUNT_LIMIT = 5
+QUERY_COUNT_LIMIT = 100
 
 
 class TenderSpider:
@@ -23,7 +25,7 @@ class TenderSpider:
         self.summary()
         close_connection(self.connection)
 
-    def save_tender_list(self, table: list) -> tuple:
+    def save_tender_list(self, table):
         """
         将数据存储到 SQLite 数据库中，并返回未重复数据的数量、总数据量和操作是否成功。
         :param table: 包含招标信息的列表，每个元素都是一个记录
@@ -35,12 +37,6 @@ class TenderSpider:
         try:
             # 连接到指定 SQLite 数据库
             cursor = self.connection.cursor()
-
-            # 建立数据表
-            self.connection.execute(
-                '''CREATE TABLE IF NOT EXISTS tender (id INTEGER PRIMARY KEY, href TEXT UNIQUE, 
-                title TEXT, area TEXT, post_date DATE, has_crawled INTEGER DEFAULT 0,html TEXT,
-                created_at  TIMESTAMP default CURRENT_TIMESTAMP, updated_at TIMESTAMP default CURRENT_TIMESTAMP)''')
 
             # 对数据进行去重，并将未重复的数据添加到unique_data_list中
             for row in table:
@@ -106,40 +102,38 @@ class TenderSpider:
             return None
             # await context.close()
 
-    async def get_tender_list(self, browser, url):
-        context = await browser.new_context()
+    async def get_tender_list(self, url):
         tbody_list = []
-
         try:
-            # 设置 cookies
-            # await context.add_cookies([self.cookie])
-            page = await context.new_page()
-            print("Navigating to", url)
-            await page.goto(url)
-            # 获取tbody id=data tbody下全部tr标签文本内容并输出到控制台
-            print("Accessing table data...")
-            tbody = await page.query_selector('#datatbody')
-            trs = await tbody.query_selector_all('tr')
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                              'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
+            print(f"Navigating to {url}. Getting the tender list.")
+
+            response = requests.get(url, headers=headers)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            table = soup.find('table', {'class': 'searchaltab-table'})
+            tbody = table.find('tbody', {'id': 'datatbody'})
+            trs = tbody.find_all('tr', {'class': 'datatr'})
 
             for tr in trs:
-                tds = await tr.query_selector_all('td')
-                tds_text = []
+                row = []
+                tds = tr.find_all('td')
                 for i, td in enumerate(tds):
-                    if i == 0:
-                        a_link = await td.query_selector('a')
-                        href = await a_link.get_attribute('href')
-                        title = await a_link.get_attribute('title')
-                        tds_text.append(href)
-                        tds_text.append(title)
+                    if i == 0:  # 第一个td标签
+                        a_tag = td.find('a')
+                        if a_tag is not None:
+                            row.append(a_tag['href'])  # 获取href属性值
+                            row.append(a_tag['title'])  # 获取title属性值
+                        else:
+                            row.append('')
+                            row.append('')
                     else:
-                        tds_text.append(await td.text_content())
-                tbody_list.append(tds_text)
+                        row.append(td.text.strip())  # 去除空白字符
+                tbody_list.append(row)
         except Exception as e:
             print(f"Error crawling list page - function(get_tender_list): {e}")
-            # 打印并保存数据到数据库
-            # # print_2d_array(tbody_list)
         finally:
-            await context.close()
             return tbody_list
 
     def get_detail_href_to_crawl(self, query_count_limit=50):
@@ -191,7 +185,7 @@ class TenderSpider:
         crawled_today_count = cursor.execute(crawled_today_sql).fetchone()[0]
         return today_count, yesterday_count, before_yesterday_count, crawled_today_count
 
-    def show_summary(self):
+    def show_summary_info(self):
         today_count, yesterday_count, before_yesterday_count, crawled_today_count = self.summary()
         sum_text = f"今天新增：{today_count} 条；昨天新增：{yesterday_count} 条；前天新增：{before_yesterday_count} 条。\n" \
                    f"今天已爬取：{crawled_today_count} 条。"
@@ -201,35 +195,26 @@ class TenderSpider:
     async def run(self, page=LIST_PAGE):
         # 获取招标信息列表页
         if page == LIST_PAGE:
-            browser = None
-            try:
-                async with async_playwright() as p:
-                    print(f"{datetime.datetime.now()} - > Crawling list page. Launching browser...")
-                    browser = await p.chromium.launch()
-                    base_url = "https://zb.zhaobiao.cn"
-                    page_num = 100
-                    # 省份代码列表，按此遍历各省份招标信息
-                    provinces = ['330000', '420000']
-                    # 遍历各省份
-                    for province in provinces:
-                        print("Travelling province: " + province)
-                        log("Travelling province: " + province)
-                        url_list = generate_url_list(base_url, province, page_num)
-                        for url in url_list:
-                            tender_list = await self.get_tender_list(browser, url)
-                            dup_count, total_count, is_success = self.save_tender_list(tender_list)
-                            print(
-                                f"Duplicate data: {dup_count}/{total_count}. "
-                                f"New data {total_count - dup_count} saved. ")
-                            if dup_count == total_count:
-                                print("Too many duplicate datas, skip to the rest province.")
-                                break
-                    await browser.close()
-                    self.show_summary()
-            except Exception as e:
-                print(f"Error crawling list page: {e}")
-                log(f"Error crawling list page: {e}")
-                await browser.close()
+            print(f"{datetime.datetime.now()} - > Crawling list page. Launching browser...")
+            base_url = "https://zb.zhaobiao.cn"
+            page_num = 100
+            # 省份代码列表，按此遍历各省份招标信息
+            provinces = ['330000', '420000']
+            # 遍历省份列表
+            for province in provinces:
+                print("Travelling province: " + province)
+                log("Travelling province: " + province)
+                url_list = generate_url_list(base_url, province, page_num)
+                for url in url_list:
+                    tender_list = await self.get_tender_list(url)
+                    dup_count, total_count, is_success = self.save_tender_list(tender_list)
+                    print(
+                        f"Duplicate data: {dup_count}/{total_count}. "
+                        f"New data {total_count - dup_count} saved. ")
+                    if dup_count == total_count:
+                        print("Too many duplicate data, skip.")
+                        break
+            self.show_summary_info()
 
         # 获取招标信息详情页
         if page == DETAIL_PAGE:
@@ -253,23 +238,26 @@ class TenderSpider:
                             f'Total/Crawled: {total_count}/{not_null_count}，'
                             f'Completed: {not_null_count / total_count * 100:.2f}%')
 
-                        delay_time = random.randint(1, 5)
-                        print(f"Waiting for {delay_time} seconds...")
-                        time.sleep(delay_time)
+                        # delay_time = random.randint(1, 5)
+                        # print(f"Waiting for {delay_time} seconds...")
+                        # time.sleep(delay_time)
                         html = await self.get_tender_detail(browser, href[1])
-                        # print(html[:50] + '...')
                         # 保存招标信息详情页
                         if html is not None:
                             if self.save_detail_data_to_db(href[0], html):
                                 print(f"Detail page saved")
-                    log("All detail pages crawled.")
+                        else:
+                            log("Error crawling detail page.")
+                            await browser.close()
+                            print(f"Empty html. {href[1]}")
+                            execute_at_daytime(send_dingtalk, (f"爬虫被网站禁止，{href[1]}",))
+                            break
                     # href_list = self.get_detail_href_to_crawl(query_count_limit=50)
             except Exception as e:
                 print(f"Error crawling detail page (function run): {e}")
                 await browser.close()
                 print("Browser was shutdown.")
-            self.show_summary()
-            print("All detail pages crawled.")
+            self.show_summary_info()
 
     def start(self, page):
         asyncio.run(self.run(page=page))
