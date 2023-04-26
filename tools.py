@@ -1,7 +1,72 @@
+# -*- coding: utf-8 -*-
+import os
 import sqlite3
+import datetime
+import requests
+import json
 
 
-def get_cookie():
+def send_dingtalk(msg):
+    """
+    发送钉钉消息到指定群组或个人
+    :param webhook_url: 钉钉机器人的 Webhook 地址
+    :param msg: 发送的消息内容
+    :param at_mobiles: 被 @ 的钉钉用户手机号列表，如 ["188xxxx8888", "177xxxx7777"]
+    :param is_at_all: 是否 @ 所有人
+    """
+    token = '052ac1c5458f626404e315f58b5a9b081510ac94671375282b0a1a31178d785c'
+    webhook_url = 'https://oapi.dingtalk.com/robot/send?access_token=' + token  # 钉钉机器人 Webhook 地址，需要填入自己的 token。
+
+    headers = {'Content-Type': 'application/json;charset=utf-8'}
+    data = {
+        'msgtype': 'text',
+        'text': {'content': '招标：\n' + msg},
+        'at': {}
+    }
+    at_mobiles = '13971008822'
+    is_at_all = False
+
+    # if at_mobiles:
+    #     data['at']['atMobiles'] = at_mobiles
+    # if is_at_all:
+    #     data['at']['isAtAll'] = True
+
+    try:
+        response = requests.post(url=webhook_url, data=json.dumps(data), headers=headers)
+        response_json = json.loads(response.content.decode('utf-8'))
+        if response.status_code == requests.codes.ok and response_json['errcode'] == 0:
+            print("Message sent successfully.")
+        else:
+            print("Failed to send message. Response:", response.text)
+    except Exception as e:
+        print("Exception occurred while sending message:", e)
+
+
+def execute_at_daytime(func, args=()):
+    """
+    限制只在白天执行指定函数
+    :param func: 要执行的函数
+    :param args: 函数参数（位置参数）
+    :param kwargs: 函数参数（关键字参数）
+    """
+    now = datetime.datetime.now()
+    hour = now.hour
+
+    if hour >= 0 and hour < 7:
+        print("当前时间为晚上，不执行钉钉发送信息函数")
+    else:
+        func(*args)
+
+
+def log(text, filename='log.txt'):
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    log_file = os.path.join(script_dir, filename)
+    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    with open(log_file, 'a') as f:
+        f.write(f"[{now}] {text}\n")
+
+
+def get_cookie(cookie_file='cookie.txt'):
     """
     从 cookie.txt 文件中读取 cookie 值。
     Returns
@@ -9,8 +74,11 @@ def get_cookie():
         cookie : str, 即cookie的值
 
     """
-    with open('cookie.txt', 'r') as f:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    cookie_file = os.path.join(script_dir, cookie_file)
+    with open(cookie_file, 'r') as f:
         cookie = f.read()
+    print(f"cookie: {cookie}, cookie_file: {cookie_file}")
     return cookie
 
 
@@ -21,6 +89,9 @@ def create_connection(db_file="mydatabase.db"):
     db_file：数据库文件路径，默认为"mydatabase.db"
     返回值：数据库连接对象
     """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    db_file = os.path.join(script_dir, db_file)
+    print(f"db_file:{db_file}")
     conn = None
     try:
         conn = sqlite3.connect(db_file)
@@ -43,45 +114,6 @@ def close_connection(conn):
         print("数据库连接已关闭。")
 
 
-def print_2d_array(arr, delimiter=' ', header=True, alignment='left'):
-    """
-    将二维数组以表格形式输出，支持带有表头和列对齐
-    :param arr: 二维数组
-    :param delimiter: 元素分隔符，默认为空格符
-    :param header: 是否输出表头，默认为 True
-    :param alignment: 对齐方式，可选值包括 'left'、'center' 和 'right'，默认为 'left'
-    """
-    # 判断对齐方式是否有效
-    valid_alignments = ['left', 'center', 'right']
-    if alignment not in valid_alignments:
-        raise ValueError(f"Invalid alignment '{alignment}'. Valid values are {valid_alignments}")
-
-    # 获取每列的最大宽度
-    if header:
-        rows = arr[1:]
-    else:
-        rows = arr
-    max_widths = [max([len(str(row[i])) for row in rows]) for i in range(len(arr[0]))]
-
-    # 输出表格
-    if header:
-        # 输出表头
-        header_row = arr[0]
-        for i, col in enumerate(header_row):
-            col_str = str(col).ljust(max_widths[i]) if alignment == 'left' else (
-                str(col).center(max_widths[i]) if alignment == 'center' else str(col).rjust(max_widths[i]))
-            print(col_str, end=delimiter)
-        print()
-
-    # 输出表格数据
-    for i, row in enumerate(rows):
-        for j, col in enumerate(row):
-            col_str = str(col).ljust(max_widths[j]) if alignment == 'left' else (
-                str(col).center(max_widths[j]) if alignment == 'center' else str(col).rjust(max_widths[j]))
-            print(col_str, end=delimiter)
-        print()
-
-
 def generate_url_list(base_url, province_id, page_num):
     url_list = []
     for i in range(2, page_num + 1):
@@ -93,4 +125,5 @@ def generate_url_list(base_url, province_id, page_num):
 
 
 if __name__ == '__main__':
-    print("Running tools.py")
+    print(f"Travelling href: {get_cookie()}")
+    # print(get_cookie())
