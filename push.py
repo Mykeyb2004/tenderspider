@@ -7,5 +7,6 @@ if __name__ == '__main__':
     tender_calc = TenderWeightCalculator()
     tender_calc.update_tender_weight(refresh_all=False)
     # 推送招标信息
+    print("Pushing tender info...")
     tender_push = TenderPush()
-    tender_push.push(100)
+    tender_push.push(200)

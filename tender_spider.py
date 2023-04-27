@@ -1,19 +1,18 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
-import random
-# import datetime
-import time
+import re
 import sys
-import requests
 
+from fake_useragent import UserAgent
 from tools import *
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 
 LIST_PAGE = 0
 DETAIL_PAGE = 1
-QUERY_COUNT_LIMIT = 100
+QUERY_COUNT_LIMIT = 150  # 获取详情页时，每次爬取的页面数量
+SENSITIVITY_SCORE = 20  # 关键词汇的敏感度分数，超过该分数的招标信息将被爬取记录到数据库中
 
 
 class TenderSpider:
@@ -24,6 +23,18 @@ class TenderSpider:
     def __del__(self):
         self.summary()
         close_connection(self.connection)
+
+    def count_weight(self, target_text):
+        cursor = self.connection.cursor()
+
+        # 遍历词汇表中的每个单词，并将匹配的 w 值进行累加
+        total_weight = 0
+        for row in cursor.execute("SELECT word, w FROM dictionary"):
+            if re.search(row[0], target_text):
+                print("匹配到关键词：", row[0], "，w 值为：", row[1])
+                total_weight += row[1]
+        # 返回总 w 值汇总分数
+        return total_weight
 
     def save_tender_list(self, table):
         """
@@ -58,7 +69,7 @@ class TenderSpider:
             self.connection.rollback()
             return 0, len(table), False
 
-    def save_detail_data_to_db(self, record_id: int, html: str) -> bool:
+    def save_detail_data_to_db(self, record_id, html):
         try:
             # 连接到指定 SQLite 数据库
             cursor = self.connection.cursor()
@@ -68,7 +79,6 @@ class TenderSpider:
             # 提交更改并关闭连接
             self.connection.commit()
             cursor.close()
-            print()
             return True
         except Exception as e:
             # 如果出现错误，回滚事务并关闭连接
@@ -76,6 +86,19 @@ class TenderSpider:
             self.connection.rollback()
             cursor.close()
             return False
+
+    def pre_get_tender_detail(self, url_param):
+        # 设置 fake header
+        ua = UserAgent()
+        # 发送 GET 请求
+        response = requests.get(url_param, headers={'User-Agent': ua.random})
+        # 解析 HTML 内容
+        soup = BeautifulSoup(response.content, 'html.parser')
+        # 获取指定标签的内容
+        div = soup.find('div', {'id': 'infocontent'})
+        if div is None:
+            return 0
+        return self.count_weight(div.text)
 
     async def get_tender_detail(self, browser, url):
 
@@ -109,7 +132,6 @@ class TenderSpider:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
                               'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
             print(f"Navigating to {url}. Getting the tender list.")
-
             response = requests.get(url, headers=headers)
             soup = BeautifulSoup(response.text, 'html.parser')
             table = soup.find('table', {'class': 'searchaltab-table'})
@@ -145,7 +167,8 @@ class TenderSpider:
         try:
             cursor = self.connection.cursor()
             cursor.execute(
-                f"SELECT id, href FROM tender WHERE has_crawled = 0 AND post_date = '{today_str}' ORDER BY post_date DESC LIMIT {query_count_limit}")
+                f"SELECT id, href FROM tender WHERE has_crawled = 0 AND post_date = '{today_str}' "
+                f"ORDER BY post_date DESC LIMIT {query_count_limit}")
             rows = cursor.fetchall()
             for row in rows:
                 href_list.append([row[0], row[1]])
@@ -177,7 +200,7 @@ class TenderSpider:
         today_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', 'localtime')"
         yesterday_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', '-1 day', 'localtime')"
         before_yesterday_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', '-2 day', 'localtime')"
-        crawled_today_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', 'localtime') AND html IS NOT NULL"
+        crawled_today_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', 'localtime') AND has_crawled = 1"
         # 执行 SQL 查询语句并获取总数
         today_count = cursor.execute(today_sql).fetchone()[0]
         yesterday_count = cursor.execute(yesterday_sql).fetchone()[0]
@@ -192,9 +215,9 @@ class TenderSpider:
         print(sum_text)
         log(sum_text)
 
-    async def run(self, page=LIST_PAGE):
+    async def run(self, which_page=LIST_PAGE):
         # 获取招标信息列表页
-        if page == LIST_PAGE:
+        if which_page == LIST_PAGE:
             print(f"{datetime.datetime.now()} - > Crawling list page. Launching browser...")
             base_url = "https://zb.zhaobiao.cn"
             page_num = 100
@@ -217,7 +240,7 @@ class TenderSpider:
             self.show_summary_info()
 
         # 获取招标信息详情页
-        if page == DETAIL_PAGE:
+        if which_page == DETAIL_PAGE:
             browser = None
             try:
                 async with async_playwright() as p:
@@ -227,32 +250,36 @@ class TenderSpider:
                     # 获取待爬取的招标信息链接
                     href_list = self.get_detail_href_to_crawl(query_count_limit=QUERY_COUNT_LIMIT)
 
-                    # while len(href_list) > 0:
+                    print(f"Total href count: {len(href_list)}")
                     # 遍历招标信息链接
-                    for href in href_list:
+                    for i, href in enumerate(href_list):
                         travel_href_text = f"[{datetime.datetime.now()}] Travelling href: {href}"
                         log(travel_href_text)
                         print(travel_href_text)
-                        total_count, not_null_count = self.count_crawled_html_records()
-                        print(
-                            f'Total/Crawled: {total_count}/{not_null_count}，'
-                            f'Completed: {not_null_count / total_count * 100:.2f}%')
+                        # total_count, not_null_count = self.count_crawled_html_records()
+                        # print(
+                        #     f'Total/Crawled: {total_count}/{not_null_count}，'
+                        #     f'Completed: {not_null_count / total_count * 100:.2f}%')
 
-                        # delay_time = random.randint(1, 5)
-                        # print(f"Waiting for {delay_time} seconds...")
-                        # time.sleep(delay_time)
-                        html = await self.get_tender_detail(browser, href[1])
-                        # 保存招标信息详情页
-                        if html is not None:
-                            if self.save_detail_data_to_db(href[0], html):
-                                print(f"Detail page saved")
-                        else:
-                            log("Error crawling detail page.")
-                            await browser.close()
-                            print(f"Empty html. {href[1]}")
-                            execute_at_daytime(send_dingtalk, (f"爬虫被网站禁止，{href[1]}",))
-                            break
-                    # href_list = self.get_detail_href_to_crawl(query_count_limit=50)
+                        pre_weight = self.pre_get_tender_detail(href[1])
+                        print(f"{i + 1} pre_weight: {pre_weight}, href: {href[1]}")
+                        # 等于0: 无需爬取详情页；大于等于SENSITIVITY_SCORE: 需要爬取详情页
+                        if pre_weight < SENSITIVITY_SCORE:
+                            print(f"Skip the Detail page. {href[1]}")
+                            if self.save_detail_data_to_db(href[0], None):
+                                print(f"Detail page tagged as 'no need to crawl'.")
+                        elif pre_weight >= SENSITIVITY_SCORE:
+                            html = await self.get_tender_detail(browser, href[1])
+                            # 保存招标信息详情页
+                            if html is not None:
+                                if self.save_detail_data_to_db(href[0], html):
+                                    print(f"Detail page saved")
+                            else:
+                                log("Error crawling detail page.")
+                                await browser.close()
+                                print(f"Empty html. {href[1]}")
+                                execute_at_daytime(send_dingtalk, (f"爬虫被网站禁止，{href[1]}",))
+                                break
             except Exception as e:
                 print(f"Error crawling detail page (function run): {e}")
                 await browser.close()
@@ -260,21 +287,24 @@ class TenderSpider:
             self.show_summary_info()
 
     def start(self, page):
-        asyncio.run(self.run(page=page))
+        asyncio.run(self.run(which_page=page))
 
 
 if __name__ == '__main__':
-    # 获取命令行参数
-    arg = sys.argv[1]
-    if arg == 'list':
-        print("Starting to crawl list page...\n")
-        spider = TenderSpider()
-        spider.start(LIST_PAGE)
-    elif arg == 'detail':
-        print("Starting to crawl detail page...\n")
-        spider = TenderSpider()
-        spider.start(DETAIL_PAGE)
-    elif arg is None:
-        print("Need a parameter in command line.\n")
-    else:
-        print("Invalid parameter.\n")
+    # # 获取命令行参数
+    # arg = sys.argv[1]
+    # if arg == 'list':
+    #     print("Starting to crawl list page...\n")
+    #     spider = TenderSpider()
+    #     spider.start(LIST_PAGE)
+    # elif arg == 'detail':
+    #     print("Starting to crawl detail page...\n")
+    #     spider = TenderSpider()
+    #     spider.start(DETAIL_PAGE)
+    # elif arg is None:
+    #     print("Need a parameter in command line.\n")
+    # else:
+    #     print("Invalid parameter.\n")
+    spider = TenderSpider()
+    spider.start(LIST_PAGE)
+    spider.start(DETAIL_PAGE)

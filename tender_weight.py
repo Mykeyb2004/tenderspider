@@ -2,11 +2,13 @@ import sqlite3
 import html2text
 import re
 from datetime import datetime
+import os
 
 
 class TenderWeightCalculator:
     def __init__(self, db_file='mydatabase.db'):
-        self.db_file = db_file
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.db_file = os.path.join(script_dir, db_file)
 
     def count_weight(self, target_text, conn):
         cursor = conn.cursor()
@@ -43,14 +45,15 @@ class TenderWeightCalculator:
         for i, row in enumerate(rows):
             id, title, weight, href, html = row
             # print(row)
-            text = html2text.html2text(html)
-            total_weight = self.count_weight(text, conn)
+            if html:
+                text = html2text.html2text(html)
+                total_weight = self.count_weight(title + text, conn)
 
-            print(f"{i + 1}. 标题：{title}，权重值：{total_weight}，链接：{href}")
+                print(f"{i + 1}. 标题：{title}，权重值：{total_weight}，链接：{href}")
 
-            # 更新 tender 表 weight 字段的值
-            sql = f"UPDATE tender SET weight = {total_weight} WHERE id = {id}"
-            conn.execute(sql)
+                # 更新 tender 表 weight 字段的值
+                sql = f"UPDATE tender SET weight = {total_weight} WHERE id = {id}"
+                conn.execute(sql)
 
         # 提交事务
         conn.commit()
