@@ -45,9 +45,11 @@ class TenderPush:
         print("Scanning records...")
         now = datetime.now()
         today = now.strftime("%Y-%m-%d")
+        print(f"Today is {today}.")
 
-        sql = f"SELECT id, title, weight, href FROM tender WHERE post_date= '{today}' AND weight is not null " \
-              f"order by weight desc limit {limit};"
+        sql = f"SELECT id, title, weight, href FROM tender WHERE post_date= '{today}' and weight > 0 " \
+              f"order by weight limit {limit} offset(SELECT count(*) FROM tender WHERE post_date= '{today}' " \
+              f"and weight > 0 ) - {limit};"
         rows = self.cursor.execute(sql).fetchall()
 
         push_list = []

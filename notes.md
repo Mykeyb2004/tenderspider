@@ -95,7 +95,7 @@ sqlite> .read mycommands.sql
 
 ## 进程守护启动命令（**未试验成功**）
 ```bash
-pm2 start /home/tender/main.py --name "tender_list" --interpreter /usr/bin/python3.8 --watch
+pm2 start /home/tender/schedule_run.py --name "tender_list" --interpreter /usr/bin/python3.8 --watch
 ```
 log所在目录
 /home/ubuntu/.pm2/logs/
@@ -109,7 +109,7 @@ log所在目录
 
 ## 启动脚本
 ```bash
-pm2 start /home/tender/main.py --name "tender_list" --interpreter /home/tender/venv/bin/python --watch
+pm2 start /home/tender/schedule_run.py --name "tender_list" --interpreter /home/tender/venv/bin/python --watch
 ```
 ## 重启脚本
 ```bash

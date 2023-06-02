@@ -8,6 +8,7 @@ from fake_useragent import UserAgent
 from tools import *
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
+from tender_weight import TenderWeightCalculator
 
 LIST_PAGE = 0
 DETAIL_PAGE = 1
@@ -201,17 +202,19 @@ class TenderSpider:
         yesterday_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', '-1 day', 'localtime')"
         before_yesterday_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', '-2 day', 'localtime')"
         crawled_today_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', 'localtime') AND has_crawled = 1"
+        stored_today_sql = "SELECT COUNT(*) FROM tender WHERE DATE(post_date) = DATE('now', 'localtime') AND html IS NOT NULL"
         # 执行 SQL 查询语句并获取总数
         today_count = cursor.execute(today_sql).fetchone()[0]
         yesterday_count = cursor.execute(yesterday_sql).fetchone()[0]
         before_yesterday_count = cursor.execute(before_yesterday_sql).fetchone()[0]
         crawled_today_count = cursor.execute(crawled_today_sql).fetchone()[0]
-        return today_count, yesterday_count, before_yesterday_count, crawled_today_count
+        stored_today_count = cursor.execute(stored_today_sql).fetchone()[0]
+        return today_count, yesterday_count, before_yesterday_count, crawled_today_count, stored_today_count
 
     def show_summary_info(self):
-        today_count, yesterday_count, before_yesterday_count, crawled_today_count = self.summary()
+        today_count, yesterday_count, before_yesterday_count, crawled_today_count, stored_today_count = self.summary()
         sum_text = f"今天新增：{today_count} 条；昨天新增：{yesterday_count} 条；前天新增：{before_yesterday_count} 条。\n" \
-                   f"今天已爬取：{crawled_today_count} 条。"
+                   f"今天已爬取：{crawled_today_count} 条。, 今天详情页已入库：{stored_today_count} 条。"
         print(sum_text)
         log(sum_text)
 
@@ -222,7 +225,7 @@ class TenderSpider:
             base_url = "https://zb.zhaobiao.cn"
             page_num = 100
             # 省份代码列表，按此遍历各省份招标信息
-            provinces = ['330000', '420000']
+            provinces = ['330000', '420000', '360000']
             # 遍历省份列表
             for province in provinces:
                 print("Travelling province: " + province)
@@ -256,10 +259,6 @@ class TenderSpider:
                         travel_href_text = f"[{datetime.datetime.now()}] Travelling href: {href}"
                         log(travel_href_text)
                         print(travel_href_text)
-                        # total_count, not_null_count = self.count_crawled_html_records()
-                        # print(
-                        #     f'Total/Crawled: {total_count}/{not_null_count}，'
-                        #     f'Completed: {not_null_count / total_count * 100:.2f}%')
 
                         pre_weight = self.pre_get_tender_detail(href[1])
                         print(f"{i + 1} pre_weight: {pre_weight}, href: {href[1]}")
@@ -291,20 +290,17 @@ class TenderSpider:
 
 
 if __name__ == '__main__':
-    # # 获取命令行参数
-    # arg = sys.argv[1]
-    # if arg == 'list':
-    #     print("Starting to crawl list page...\n")
-    #     spider = TenderSpider()
-    #     spider.start(LIST_PAGE)
-    # elif arg == 'detail':
-    #     print("Starting to crawl detail page...\n")
-    #     spider = TenderSpider()
-    #     spider.start(DETAIL_PAGE)
-    # elif arg is None:
-    #     print("Need a parameter in command line.\n")
-    # else:
-    #     print("Invalid parameter.\n")
-    spider = TenderSpider()
-    spider.start(LIST_PAGE)
-    spider.start(DETAIL_PAGE)
+    # 获取命令行参数
+    arg = sys.argv[1]
+    if arg == 'list':
+        print("Starting to crawl list page...\n")
+        spider = TenderSpider()
+        spider.start(LIST_PAGE)
+    elif arg == 'detail':
+        print("Starting to crawl detail page...\n")
+        spider = TenderSpider()
+        spider.start(DETAIL_PAGE)
+    elif arg is None:
+        print("Need a parameter in command line.\n")
+    else:
+        print("Invalid parameter.\n")

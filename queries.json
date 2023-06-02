@@ -1,11 +1,15 @@
 [
   {
-    "description": "查询每日发布量",
+    "description": "查询最近10日发布量",
     "sql": "SELECT post_date, COUNT(*) AS count FROM tender GROUP BY post_date order by post_date DESC limit 10;"
   },
   {
-    "description": "查询当日已爬取的页面数",
+    "description": "查询当日已入库页面数",
     "sql": "select count(id) from tender where post_date = date('now') and html is not null order by id;"
+  },
+  {
+    "description": "查询当日已爬取页面数(包含已爬取但不符合条件的记录)",
+    "sql": "select count(id) from tender where post_date = date('now') and has_crawled = 1 order by id;"
   },
   {
     "description": "查询当日发布数",
@@ -14,5 +18,13 @@
   {
     "description": "查询当日权重排序",
     "sql": "select id, weight, title, href from tender where weight > 0 and post_date = date('now') order by weight desc, post_date desc ,area limit 30;"
+  },
+  {
+    "description": "查经济普查",
+    "sql": "select id, weight, post_date, title, href from tender where html like '%经济普查%' or html like '%经普%' or title like '%经济普查%' or title like '%经普%' order by post_date desc;"
+  },
+  {
+    "description": "debug",
+    "sql": "select id, post_date from tender where post_date = date('now') limit 10;"
   }
 ]

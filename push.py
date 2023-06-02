@@ -1,12 +1,8 @@
-from tender_weight import TenderWeightCalculator
 from tender_push import TenderPush
+import datetime
 
 if __name__ == '__main__':
-    # 更新权重
-    print("Updating tender weights...")
-    tender_calc = TenderWeightCalculator()
-    tender_calc.update_tender_weight(refresh_all=False)
     # 推送招标信息
-    print("Pushing tender info...")
+    print(f"[{datetime.datetime.now()}] Pushing tender info...")
     tender_push = TenderPush()
-    tender_push.push(200)
+    tender_push.push(300)
