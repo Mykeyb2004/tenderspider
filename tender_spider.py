@@ -222,24 +222,29 @@ class TenderSpider:
         # 获取招标信息列表页
         if which_page == LIST_PAGE:
             print(f"{datetime.datetime.now()} - > Crawling list page. Launching browser...")
-            base_url = "https://zb.zhaobiao.cn"
-            page_num = 100
+            # base_url = "https://zb.zhaobiao.cn"
+            # page_num = 100
             # 省份代码列表，按此遍历各省份招标信息
-            provinces = ['330000', '420000', '360000']
-            # 遍历省份列表
-            for province in provinces:
-                print("Travelling province: " + province)
-                log("Travelling province: " + province)
-                url_list = generate_url_list(base_url, province, page_num)
-                for url in url_list:
-                    tender_list = await self.get_tender_list(url)
-                    dup_count, total_count, is_success = self.save_tender_list(tender_list)
-                    print(
-                        f"Duplicate data: {dup_count}/{total_count}. "
-                        f"New data {total_count - dup_count} saved. ")
-                    if dup_count == total_count:
-                        print("Too many duplicate data, skip.")
-                        break
+            provinces = ['330000', '420000']
+            # 招标网分类目录 招标公告、招标预告、中标公告、变更公告、采购信息、免费公告、文件下载、其他公告、推荐公告
+            categories = ['bidding', 'fore', 'free', 'other', 'recommend']
+
+            #  遍历招标网分类目录
+            for category in categories:
+                # 遍历省份列表
+                for province in provinces:
+                    print("Travelling province: " + province)
+                    log("Travelling province: " + province)
+                    url_list = generate_url_list("https://zb.zhaobiao.cn", category, province, 100)
+                    for url in url_list:
+                        tender_list = await self.get_tender_list(url)
+                        dup_count, total_count, is_success = self.save_tender_list(tender_list)
+                        print(
+                            f"重复数据: {dup_count}/{total_count}. "
+                            f"新招标数据： {total_count - dup_count}. ")
+                        if dup_count == total_count:
+                            print("页面存在太多重复数据，跳过爬取.")
+                            break
             self.show_summary_info()
 
         # 获取招标信息详情页
