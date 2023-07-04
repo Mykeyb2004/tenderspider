@@ -8,7 +8,7 @@ from fake_useragent import UserAgent
 from tools import *
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
-from tender_weight import TenderWeightCalculator
+# from tender_weight import TenderWeightCalculator
 
 LIST_PAGE = 0
 DETAIL_PAGE = 1
