@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 
 LIST_PAGE = 0
 DETAIL_PAGE = 1
-QUERY_COUNT_LIMIT = 150  # 获取详情页时，每次爬取的页面数量
+QUERY_COUNT_LIMIT = 1500  # 获取详情页时，每次爬取的页面数量
 SENSITIVITY_SCORE = 20  # 关键词汇的敏感度分数，超过该分数的招标信息将被爬取记录到数据库中
 
 
@@ -227,7 +227,7 @@ class TenderSpider:
             # 省份代码列表，按此遍历各省份招标信息
             provinces = ['330000', '420000']
             # 招标网分类目录 招标公告、招标预告、中标公告、变更公告、采购信息、免费公告、文件下载、其他公告、推荐公告
-            categories = ['bidding', 'fore', 'free', 'other', 'recommend']
+            categories = ['bidding', 'fore', 'free']
 
             #  遍历招标网分类目录
             for category in categories:
